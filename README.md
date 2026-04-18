@@ -1,6 +1,67 @@
-#cứ thế mà chạy thôiii
+# Hệ thống Dự đoán Tính cách MBTI (phiên bản 4)
+## Kiến trúc RAG + Multi-Agent 
 
-##đây là output 
+Repository này chứa một pipeline nâng cao nhằm dự đoán loại tính cách Myers-Briggs (MBTI) từ văn bản của người dùng. Hệ thống sử dụng một cấu trúc lai kết hợp giữa Học máy (Machine Learning) truyền thống và hệ thống Truy xuất Tăng cường Sinh (Retrieval-Augmented Generation - RAG) trong một mô hình Đa tác tử (Multi-Agent).
+
+Hệ thống được thiết kế để dễ dàng so sánh kết quả và đánh giá các phương pháp tương đồng với các tài liệu nghiên cứu gần đây (ví dụ: *arXiv:2509.04461*).
+
+## ✨ Điểm nổi bật của kiến trúc
+
+1. **Điều phối Đa tác tử (Multi-Agent Orchestration)**:
+   - **FeatureBuilder**: Trích xuất các tập đặc trưng (features) đa lớp bằng cách sử dụng TF-IDF từ (Word), TF-IDF theo n-gram ký tự (Character), và các thống kê 8 chiều dựa trên từ điển cốt lõi (Lexicon-based).
+   - **KnowledgeBase**: Chỉ mục RAG được xây dựng từ tập dữ liệu huấn luyện. Module này pha trộn vectơ văn bản của người dùng với các từ khóa "mầm" (seeds) theo từng trục tính cách để truy xuất bằng chứng cá nhân hóa. Từ đó tính toán được tỷ lệ nhãn RAG dựa trên tập láng giềng gần nhất (nearest neighbors).
+   - **TraitAgents (4x)**: Bốn Agent riêng biệt phụ trách cho 4 trục MBTI (IE, NS, TF, JP). Quyết định cuối cùng của mỗi độ đo được hệ thống tính toán bằng cách kết hợp xác suất từ mô hình phân loại Hồi quy Logistic truyền thống với tỷ lệ chẩn đoán nhãn thuộc RAG.
+   - **JudgeAgent**: Tác tử cuối cùng làm nhiệm vụ tổng hợp quyết định từ 4 TraitAgents, tính toán điểm số tự tin chung bằng độ đo entropy nhị phân (binary entropy) và trả về chẩn đoán 16 loại MBTI tổng thể.
+
+2. **Cơ chế xử lý Mất cân bằng dữ liệu**: 
+   - Tự động áp dụng cơ chế **SMOTE** để bù đắp các tập mẫu thiểu số đối với các trục mất cân bằng dữ liệu nghiêm trọng nhất (IE và NS).
+   - **Tối ưu siêu tham số chuyên sâu**: Tách biệt thành một tập Validation (20%) để tìm kiếm (grid-search) tối ưu hóa giá trị phạt `C` và các ngưỡng quyết định (decision thresholds), đặc biệt hiệu quả trong việc sửa lỗi cho trục khó đoán là NS.
+
+3. **Phân chia Dữ liệu**: Pipeline đảm bảo giữ tỷ lệ phân chia minh bạch là 60% Train / 20% Validation / 20% Test.
+
+## 📦 Cài đặt yêu cầu
+
+- Python 3.8+
+- `numpy`
+- `pandas`
+- `scipy`
+- `scikit-learn`
+- `imbalanced-learn` (tùy chọn, nhưng rất khuyến nghị cài đặt để bật tính năng SMOTE)
+
+```bash
+pip install numpy pandas scipy scikit-learn imbalanced-learn
+```
+
+## 📊 Dữ liệu (Dataset)
+
+Hệ thống sử dụng bộ dữ liệu gốc **(MBTI) Myers-Briggs Personality Type Dataset** trên Kaggle.
+* Link: [Kaggle Dataset](https://www.kaggle.com/datasets/datasnaek/mbti-type/data)
+
+Cài đặt dữ liệu:
+1. Tải file `mbti_1.csv` từ trang Kaggle trên.
+2. Tạo thư mục mang tên `dataset/` nằm ở thư mục gốc của dự án và chép tập tin vừa tải vào bên trong.
+   * Cấu trúc đường dẫn chính xác phải là: `dataset/mbti_1.csv`
+
+## 🚀 Cách sử dụng
+
+Chỉ cần chạy lệnh Python gọi script chính để thực thi toàn bộ pipeline từ lúc xử lý đến khi xuất kết quả:
+
+```bash
+python RAG_agent.py
+```
+
+Hệ thống sẽ chạy thứ tự các bước tự động:
+1. Đọc file tải về và tiền xử lý dữ liệu.
+2. Chia thành tập Train, Val và Test.
+3. Đào tạo 4 bộ phân loại cho từng trục riêng biệt và tự động tinh chỉnh hyperparameters tốt nhất.
+4. Tạo dựng Hệ Cơ sở Trí thức Vector (Vector Knowledge Base) phục vụ việc chạy RAG.
+5. So khớp, in ra đầy đủ báo cáo theo chuẩn giấy nghiên cứu khoa học.
+6. Kết nối các luồng thông qua Multi-Agent Orchestrator trên tập dữ liệu kiểm thử (test) và in ra 3 ví dụ để xem kết quả đánh giá (demo).
+
+## 📈 Kết quả (Output)
+
+Dưới đây là một ví dụ về kết quả (output log) khi chạy script được bảo lưu. Bạn có thể thấy rõ các metrics ở dạng báo cáo chi tiết, mô hình so sánh chỉ số Paper-style Metrics, và ví dụ giải tích dự đoán RAG cho 3 test users cuối cùng:
+
 ```bash
 Loading dataset …
   Total users : 8675
