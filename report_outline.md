@@ -16,7 +16,7 @@
 
 ### 1.3 Phạm vi và đóng góp
 - Phân rã bài toán 16 class → 4 bài toán nhị phân độc lập
-- Đề xuất kiến trúc RAG + Single Agent với Function Calling cho bài toán phân loại tính cách
+- Đề xuất kiến trúc RAG + Single Agent sử dụng **LangChain framework** (ReAct Agent + Tool Use) cho bài toán phân loại tính cách
 - So sánh có hệ thống giữa 4 phương pháp trên cùng tập dữ liệu và điều kiện thí nghiệm
 
 ---
@@ -37,10 +37,17 @@
 - Kiến trúc RAG: Retriever (FAISS, dense embedding) + Generator (LLM)
 - Ưu điểm: bổ sung kiến thức ngoài mà không cần fine-tune
 
-### 2.4 LLM Agent
+### 2.4 LLM Agent và LangChain Framework
 - Khái niệm Agent: LLM + Planning + Tool Use + Loop + Memory
-- ReAct framework: Thought → Action → Observation loop
-- Function Calling / Tool Binding: LLM tự sinh lệnh gọi tool có cấu trúc
+- ReAct framework (Yao et al., 2022): Thought → Action → Observation loop
+- **LangChain** — framework orchestration cho LLM applications:
+  - `create_react_agent`: tạo ReAct agent từ LLM + tools + prompt template
+  - `AgentExecutor`: vòng lặp thực thi (invoke tools, truyền Observation, kiểm soát max iterations)
+  - `@tool` decorator: định nghĩa tool với auto JSON schema generation
+  - `FAISS` VectorStore wrapper: tích hợp retriever vào agent pipeline
+  - `HuggingFacePipeline`: wrapper LLM local (HuggingFace models) cho LangChain
+- Sự khác biệt giữa Function Calling (structured JSON) và ReAct (text-based Thought/Action/Observation)
+- Thách thức khi dùng open-source LLM nhỏ (7B) với ReAct: hallucination tool outputs, dual-parse errors
 
 ---
 
@@ -211,7 +218,7 @@
 | GPU | 2× NVIDIA T4 16GB |
 | RAM | 32 GB |
 | Python | 3.10+ |
-| Framework | PyTorch, Transformers, FAISS |
+| Framework | PyTorch, Transformers, **LangChain 0.3.x**, FAISS, BitsAndBytes |
 
 ### 5.2 Tái tạo kết quả (Reproducibility)
 - `random_state=42` cho tất cả split
@@ -252,12 +259,14 @@
   - Dấu hiệu overfitting (nếu có)?
   - So sánh tốc độ convergence giữa RoBERTa và D-DGCN
 
-### 6.4 Phân tích Agent Behavior
-- Phân bố tool usage: % samples gọi mỗi tool
-- Trung bình số ReAct steps per sample
-- Tỉ lệ fallback predictions
+### 6.4 Phân tích Agent Behavior (LangChain AgentExecutor)
+- Phân bố tool usage: % samples gọi mỗi tool (từ `intermediate_steps`)
+- Trung bình số ReAct steps per sample (từ `AgentExecutor` trace)
+- Tỉ lệ fallback predictions (khi agent loop thất bại)
+- Tỉ lệ guardrail rejections (agent bị buộc gather thêm evidence)
+- Tỉ lệ parsing errors xử lý bởi `RobustReActParser`
 - Long-term memory: số experience stored, confidence distribution
-- **Demo trace** cho 2-3 samples minh họa
+- **Demo trace** cho 2-3 samples minh họa (verbose=True output từ `AgentExecutor`)
 
 ### 6.5 Phân tích thời gian chạy
 | Phương pháp | Training time | Inference time (per sample) |
@@ -265,7 +274,7 @@
 | SVM | ~minutes | <0.01s |
 | RoBERTa | ~X min (Y epochs) | ~0.1s |
 | D-DGCN | ~X min (Y epochs) | ~0.15s |
-| RAG+Agent | 0 (no training) | ~25-30s (batched) |
+| RAG+Agent (LangChain) | 0 (no training) | ~25-30s (sequential, per sample) |
 
 ---
 
@@ -279,7 +288,7 @@
 | | SVM | RoBERTa | D-DGCN | RAG+Agent |
 |--|-----|---------|--------|-----------|
 | **Ưu** | Nhanh, đơn giản | Contextual embeddings | Graph relations | Không cần training, interpretable, có memory |
-| **Nhược** | Mất ngữ cảnh | Cần fine-tune | Complex, slow train | Chậm inference, phụ thuộc LLM quality |
+| **Nhược** | Mất ngữ cảnh | Cần fine-tune | Complex, slow train | Chậm inference, phụ thuộc LLM quality, LLM 7B dễ hallucinate trong ReAct format |
 
 ### 7.3 Phân tích theo chiều MBTI
 - Chiều nào dễ phân loại nhất? (thường I/E)
@@ -289,11 +298,21 @@
 ### 7.4 Vai trò của RAG và Agent components
 - Ablation ngầm: so sánh khi có/không có retrieve_knowledge, recall_experience
 - Knowledge base có thực sự giúp LLM phân loại tốt hơn?
+- Hiệu quả của guardrail: tỉ lệ prediction được cải thiện sau rejection
+- Phân tích `RobustReActParser`: bao nhiêu % responses cần sửa lỗi parsing?
 
-### 7.5 Hạn chế
+### 7.5 Thách thức kỹ thuật khi dùng LLM nhỏ với LangChain ReAct
+- LLM 7B sinh cả `Action:` + `Final Answer:` cùng lúc (dual-parse error)
+- Hallucinated `Observation:` — LLM tự tạo kết quả tool thay vì chờ hệ thống
+- Repetition loop: LLM lặp `Final Answer:` vô hạn
+- Giải pháp: `RobustReActParser` + `stop=["\nObservation:"]` + `max_new_tokens=256`
+- So sánh với LLM lớn hơn (14B+) hoặc LLM có hỗ trợ native tool calling
+
+### 7.6 Hạn chế
 - Dataset bias (PersonalityCafe — self-reported, may be inaccurate)
 - Class imbalance nghiêm trọng (INFP, INFJ chiếm đa số)
-- LLM inference cost cao
+- LLM inference cost cao (mỗi sample cần nhiều vòng ReAct)
+- LLM 7B không đủ instruction-following cho ReAct format phức tạp → cần custom parser
 
 ---
 
@@ -317,20 +336,28 @@
 - Bảng đầy đủ MBTI_DIM_KNOWLEDGE (4 chiều)
 - Bảng đầy đủ MBTI_TYPE_PROFILES (16 types với cognitive functions)
 
-### B. Ví dụ Agent Trace
-- 2-3 ví dụ đầy đủ: posts → tool calls (với arguments) → observations → prediction
-- Minh họa tính tự trị: LLM tự chọn tool, tự viết query cho retrieve_knowledge
+### B. Ví dụ Agent Trace (LangChain AgentExecutor verbose output)
+- 2-3 ví dụ đầy đủ: posts → Thought → Action → Observation → ... → Final Answer
+- Minh họa tính tự trị: LLM tự chọn tool, tự viết query cho `retrieve_mbti_knowledge`
+- Ví dụ guardrail rejection: agent submit → bị reject → retrieve thêm → submit lại
+- Ví dụ `RobustReActParser` sửa lỗi dual-parse
 
 ### C. Confusion Matrices
 - 4 confusion matrices (per axis) cho mỗi phương pháp
 - 16×16 confusion matrix cho full type classification
 
-### D. Mã nguồn
+### D. LangChain Components Reference
+- Danh sách đầy đủ LangChain packages sử dụng + version:
+  - `langchain>=0.3.0,<0.4.0`, `langchain-core`, `langchain-community`, `langchain-huggingface`
+- Class diagram: `HuggingFacePipeline` → `create_react_agent` → `AgentExecutor` → `@tool` functions
+- `RobustReActParser` source code + giải thích logic
+
+### E. Mã nguồn
 - Link notebook Kaggle hoặc GitHub
 
 ---
 
-## Checklist theo yêu cầu giảng viên ⚠️
+## Checklist
 
 | Yêu cầu | Vị trí trong báo cáo |
 |---------|---------------------|
